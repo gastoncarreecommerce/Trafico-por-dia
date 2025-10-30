@@ -9,7 +9,7 @@
     html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial}
     .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
     .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap}
     h1{font-size:20px;margin:0}
     .controls{display:flex;flex-wrap:wrap;gap:10px}
     .chip{display:inline-flex;align-items:center;gap:10px;background:#0e1320;border:1px solid rgba(255,255,255,.08);padding:10px 12px;border-radius:12px}
@@ -25,12 +25,14 @@
     .kpi .v{font-size:20px;font-weight:700}
     .kpi .delta.positive{color:var(--ok)}
     .kpi .delta.negative{color:#ff7b7b}
-    .footer{opacity:.7;font-size:12px;margin-top:12px} .chart-wrap{height:420px; display:block} canvas{width:100%!important;height:100%!important;background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));border-radius:12px}
-    canvas{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));border-radius:12px}
+    .footer{opacity:.7;font-size:12px;margin-top:12px}
+    .chart-wrap{height:420px;display:block}
+    canvas{width:100%!important;height:100%!important;background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));border-radius:12px}
     .btn{appearance:none;background:linear-gradient(135deg, #2BCCF5, #3B36A0);color:white;border:0;padding:10px 14px;border-radius:12px;font-weight:600;cursor:pointer}
     .btn:disabled{opacity:.5;cursor:not-allowed}
     .hint{font-size:12px;color:var(--muted)}
     a{color:var(--accent)}
+    select, input[type=number]{background:#0e1320;border:1px solid rgba(255,255,255,.12);color:var(--ink);padding:8px 10px;border-radius:10px}
   </style>
 </head>
 <body>
@@ -47,15 +49,30 @@
           <select id="sheet"></select>
         </div>
         <div class="chip">
-          <label for="stacked">Barras apiladas</label>
-          <input id="stacked" type="checkbox" />
-        </div>
-        <div class="chip">
           <label for="type">Tipo de gráfico</label>
           <select id="type">
             <option value="bar">Barras</option>
             <option value="line">Líneas</option>
           </select>
+        </div>
+        <div class="chip">
+          <label for="stacked">Barras apiladas</label>
+          <input id="stacked" type="checkbox" />
+        </div>
+        <div class="chip">
+          <label for="labels">Mostrar etiquetas</label>
+          <input id="labels" type="checkbox" checked />
+        </div>
+        <div class="chip">
+          <label for="fmt">Formato etiquetas</label>
+          <select id="fmt">
+            <option value="normal">Normal</option>
+            <option value="compact">Compacto (K/M)</option>
+          </select>
+        </div>
+        <div class="chip">
+          <label for="minval">Umbral mínimo</label>
+          <input id="minval" type="number" value="0" min="0" step="1" style="width:90px" />
         </div>
         <button class="btn" id="download" disabled>Descargar PNG</button>
       </div>
@@ -64,7 +81,11 @@
     <div class="grid">
       <div class="card panel">
         <div class="chart-wrap"><canvas id="chart"></canvas></div>
-        <div class="footer hint">Detecta automáticamente el formato exportado de GA4 “Sesiones x hora”: filas con <em>Hora → % de cambio</em> + dos filas con fechas (Ej. <em>29 oct-29 oct 2025</em> y <em>22 oct-22 oct 2025</em>). También intenta un fallback si tu archivo trae columnas simples <code>Hora</code> y <code>Sesiones</code>.</div>
+        <div class="footer hint">
+          Detecta automáticamente el formato exportado de GA4 “Sesiones x hora”: filas con <em>Hora → % de cambio</em> + dos filas con fechas
+          (p. ej., <em>29 oct-29 oct 2025</em> y <em>22 oct-22 oct 2025</em>). También intenta un fallback si tu archivo trae columnas simples
+          <code>Hora</code> y <code>Sesiones</code>.
+        </div>
       </div>
 
       <div class="card panel">
@@ -74,7 +95,7 @@
           <div class="kpi"><div class="t">Δ % (A vs B)</div><div class="v"><span id="kpiDelta" class="delta">–</span></div></div>
           <div class="kpi"><div class="t">Hora pico</div><div class="v" id="kpiPeak">–</div></div>
         </div>
-        <div style="margin-top:12px" class="hint">Consejo: podés arrastrar el Excel exportado directamente desde Looker Studio/GA4. Si hay varias hojas, elegí la correcta en el selector.</div>
+        <div style="margin-top:12px" class="hint">Tip: podés arrastrar el Excel exportado desde Looker Studio/GA4. Si hay varias hojas, elegí la correcta.</div>
       </div>
     </div>
   </div>
@@ -82,6 +103,7 @@
   <!-- Libs desde CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 
   <script>
   const $ = (s)=>document.querySelector(s);
@@ -91,9 +113,25 @@
   const btnPng    = $('#download');
   const typeSel   = $('#type');
   const stackedCb = $('#stacked');
+  const labelsCb  = $('#labels');
+  const fmtSel    = $('#fmt');
+  const minInput  = $('#minval');
 
   let workbook, chart, parsed;
 
+  // Helpers
+  const toInt = (x)=> {
+    const s = String(x||'').replace(/[^0-9]/g,'');
+    return s ? parseInt(s,10) : NaN;
+  };
+  const formatNumber = (v, mode='normal')=>{
+    if(mode === 'compact' && typeof Intl !== 'undefined' && Intl.NumberFormat){
+      return new Intl.NumberFormat('es-AR',{notation:'compact',maximumFractionDigits:1}).format(v);
+    }
+    return Number(v).toLocaleString('es-AR');
+  };
+
+  // Eventos UI
   fileInput.addEventListener('change', async (e)=>{
     const f = e.target.files[0];
     if(!f) return;
@@ -111,6 +149,9 @@
   sheetSel.addEventListener('change', ()=> renderFromSheet(sheetSel.value));
   typeSel.addEventListener('change', ()=> drawChart());
   stackedCb.addEventListener('change', ()=> drawChart());
+  labelsCb.addEventListener('change', ()=> drawChart());
+  fmtSel.addEventListener('change', ()=> drawChart());
+  minInput.addEventListener('change', ()=> drawChart());
   btnPng.addEventListener('click', ()=>{
     if(!chart) return;
     const url = chart.toBase64Image();
@@ -118,6 +159,7 @@
     a.href = url; a.download = 'sesiones_por_hora.png'; a.click();
   });
 
+  // Render desde hoja seleccionada
   function renderFromSheet(name){
     const ws = workbook.Sheets[name];
     const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
@@ -131,9 +173,9 @@
     btnPng.disabled = false;
   }
 
-  // Parser 1: formato exportado “Sesiones x hora” (como el archivo que me pasaste)
+  // Parser 1: GA4 “Sesiones x hora”
   function parseGA4HourExport(rows){
-    // Busco bloques: una fila con [HORA, "% de cambio", %], seguida de dos filas con [ , "dd mmm-dd mmm yyyy", sesiones]
+    // Busca bloques: [HORA, "% de cambio", %], luego 2 filas con [ , "dd mmm-dd mmm yyyy", sesiones]
     const reDate = /\d{1,2}\s\w{3}-\d{1,2}\s\w{3}\s\d{4}/i;
     const hours = new Set();
     const seriesA = {}; const seriesB = {};
@@ -165,7 +207,7 @@
 
   // Parser 2 (fallback): columnas simples Hora / Sesiones (1 serie)
   function parseSimpleHourSheet(rows){
-    // Busco cabecera con "Hora" y "Sesiones" en alguna combinación
+    // Busca cabecera con "Hora" y "Sesiones"
     let headerIdx = -1; let idxHora=-1, idxSes=-1;
     for(let i=0;i<Math.min(20,rows.length);i++){
       const r = rows[i].map(x=>String(x).toLowerCase());
@@ -185,47 +227,61 @@
     return {labels:labels.sort((a,b)=>a-b), seriesLabels:['Sesiones'], datasets:[data]};
   }
 
-  function toInt(x){
-    // Soporta formatos con punto/espacios/no-break y comas
-    const s = String(x||'').replace(/[^0-9]/g,'');
-    return s ? parseInt(s,10) : NaN;
-  }
-
   function drawChart(){
     if(chart) chart.destroy();
-    // Asegurar altura fija del lienzo (evita crecimiento infinito)
+
+    // Altura estable del lienzo (evita crecimiento infinito)
     const wrap = document.querySelector('.chart-wrap');
     const h = wrap ? Math.max(320, wrap.clientHeight||420) : 420;
     chartEl.height = h;
 
     const type = typeSel.value;
     const stacked = stackedCb.checked;
+    const showLabels = labelsCb.checked;
+    const fmt = fmtSel.value;
+    const minVal = Math.max(0, Number(minInput.value||0));
+
     const labels = parsed.labels.map(h=>String(h).padStart(2,'0'));
-    // Sanitizar datos: NaN -> 0
     const clean = (arr)=>arr.map(v=>Number.isFinite(Number(v))?Number(v):0);
+
+    const datasets = parsed.datasets.map((arr,i)=>({
+      label: parsed.seriesLabels[i]||`Serie ${i+1}`,
+      data: clean(arr),
+      tension: .3,
+      fill: stacked && type==='line' ? true : false,
+      borderWidth: 2,
+    }));
+
     const cfg = {
       type,
-      data:{
-        labels,
-        datasets: parsed.datasets.map((arr,i)=>({
-          label: parsed.seriesLabels[i]||`Serie ${i+1}`,
-          data: clean(arr),
-          tension: .3,
-          fill: stacked && type==='line' ? true : false,
-          borderWidth: 2,
-        }))
-      },
+      data:{ labels, datasets },
       options:{
         responsive:true,
         interaction:{mode:'index', intersect:false},
         maintainAspectRatio:false,
         plugins:{
           legend:{labels:{color:'#cfe0ff'}},
-          tooltip:{callbacks:{ label:(ctx)=>`${ctx.dataset.label}: ${Number(ctx.parsed.y ?? ctx.raw).toLocaleString('es-AR')}` }}
+          tooltip:{callbacks:{ 
+            label:(ctx)=>`${ctx.dataset.label}: ${formatNumber(ctx.parsed.y ?? ctx.raw, fmt)}`
+          }},
+          datalabels: showLabels ? {
+            formatter:(v)=> (v >= minVal ? formatNumber(v, fmt) : ''),
+            anchor: type==='bar' ? 'end' : 'end',
+            align:  type==='bar' ? 'end' : 'top',
+            offset: 4,
+            clamp: true,
+            clip: true,
+            color:'#e6ecff',
+            font:{weight:'600', size: 10}
+          } : { display:false }
         },
-        scales:{ x:{ticks:{color:'#9bb1ff'}, stacked: stacked && type==='bar'}, y:{ticks:{color:'#9bb1ff'}, grid:{color:'rgba(255,255,255,.08)'}, stacked: stacked && type==='bar'} }
-      }
+        scales:{
+          x:{ticks:{color:'#9bb1ff'}, stacked: stacked && type==='bar'},
+          y:{ticks:{color:'#9bb1ff'}, grid:{color:'rgba(255,255,255,.08)'}, stacked: stacked && type==='bar'}}
+      },
+      plugins: [ChartDataLabels]
     };
+
     chart = new Chart(chartEl.getContext('2d'), cfg);
   }
 
@@ -233,7 +289,8 @@
     const aTot = p.datasets[0].reduce((s,v)=>s+(v||0),0);
     const bTot = p.datasets[1] ? p.datasets[1].reduce((s,v)=>s+(v||0),0) : 0;
     const delta = bTot>0 ? ((aTot/bTot)-1)*100 : 0;
-    const peakIdx = p.datasets[0].indexOf(Math.max(...p.datasets[0]));
+    const base = p.datasets[0];
+    const peakIdx = base.indexOf(Math.max(...base));
     const peakHour = String(p.labels[peakIdx]).padStart(2,'0');
     document.getElementById('kpiA').textContent = aTot.toLocaleString('es-AR');
     document.getElementById('kpiB').textContent = bTot.toLocaleString('es-AR');
