@@ -25,7 +25,7 @@
     .kpi .v{font-size:20px;font-weight:700}
     .kpi .delta.positive{color:var(--ok)}
     .kpi .delta.negative{color:#ff7b7b}
-    .footer{opacity:.7;font-size:12px;margin-top:12px}
+    .footer{opacity:.7;font-size:12px;margin-top:12px} .chart-wrap{height:420px; display:block} canvas{width:100%!important;height:100%!important;background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));border-radius:12px}
     canvas{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));border-radius:12px}
     .btn{appearance:none;background:linear-gradient(135deg, #2BCCF5, #3B36A0);color:white;border:0;padding:10px 14px;border-radius:12px;font-weight:600;cursor:pointer}
     .btn:disabled{opacity:.5;cursor:not-allowed}
@@ -63,7 +63,7 @@
 
     <div class="grid">
       <div class="card panel">
-        <canvas id="chart" height="120"></canvas>
+        <div class="chart-wrap"><canvas id="chart"></canvas></div>
         <div class="footer hint">Detecta automáticamente el formato exportado de GA4 “Sesiones x hora”: filas con <em>Hora → % de cambio</em> + dos filas con fechas (Ej. <em>29 oct-29 oct 2025</em> y <em>22 oct-22 oct 2025</em>). También intenta un fallback si tu archivo trae columnas simples <code>Hora</code> y <code>Sesiones</code>.</div>
       </div>
 
@@ -193,16 +193,23 @@
 
   function drawChart(){
     if(chart) chart.destroy();
+    // Asegurar altura fija del lienzo (evita crecimiento infinito)
+    const wrap = document.querySelector('.chart-wrap');
+    const h = wrap ? Math.max(320, wrap.clientHeight||420) : 420;
+    chartEl.height = h;
+
     const type = typeSel.value;
     const stacked = stackedCb.checked;
     const labels = parsed.labels.map(h=>String(h).padStart(2,'0'));
+    // Sanitizar datos: NaN -> 0
+    const clean = (arr)=>arr.map(v=>Number.isFinite(Number(v))?Number(v):0);
     const cfg = {
       type,
       data:{
         labels,
         datasets: parsed.datasets.map((arr,i)=>({
           label: parsed.seriesLabels[i]||`Serie ${i+1}`,
-          data: arr,
+          data: clean(arr),
           tension: .3,
           fill: stacked && type==='line' ? true : false,
           borderWidth: 2,
@@ -214,25 +221,11 @@
         maintainAspectRatio:false,
         plugins:{
           legend:{labels:{color:'#cfe0ff'}},
-          tooltip:{callbacks:{
-            label:(ctx)=>{
-              const v = ctx.parsed.y ?? ctx.raw;
-              return `${ctx.dataset.label}: ${Number(v).toLocaleString('es-AR')}`
-            }
-          }}
+          tooltip:{callbacks:{ label:(ctx)=>`${ctx.dataset.label}: ${Number(ctx.parsed.y ?? ctx.raw).toLocaleString('es-AR')}` }}
         },
-        scales:{
-          x:{ticks:{color:'#9bb1ff'}},
-          y:{ticks:{color:'#9bb1ff'}, grid:{color:'rgba(255,255,255,.08)'}}
-        },
-        scalesId: stacked && type==='bar' ? { x:{ stacked:true }, y:{ stacked:true } } : {}
+        scales:{ x:{ticks:{color:'#9bb1ff'}, stacked: stacked && type==='bar'}, y:{ticks:{color:'#9bb1ff'}, grid:{color:'rgba(255,255,255,.08)'}, stacked: stacked && type==='bar'} }
       }
     };
-    // Apply stacking if bar
-    if(stacked && type==='bar'){
-      cfg.options.scales.x.stacked = true;
-      cfg.options.scales.y.stacked = true;
-    }
     chart = new Chart(chartEl.getContext('2d'), cfg);
   }
 
