@@ -82,9 +82,9 @@
       <div class="card panel">
         <div class="chart-wrap"><canvas id="chart"></canvas></div>
         <div class="footer hint">
-          Detecta automáticamente el formato exportado de GA4 “Sesiones x hora”: filas con <em>Hora → % de cambio</em> + dos filas con fechas
-          (p. ej., <em>29 oct-29 oct 2025</em> y <em>22 oct-22 oct 2025</em>). También intenta un fallback si tu archivo trae columnas simples
-          <code>Hora</code> y <code>Sesiones</code>.
+          Detecta automáticamente el formato exportado de GA4 “Sesiones x hora” (en español o inglés): bloques por hora con fila
+          de <em>% de cambio / % change</em> + dos filas de fechas y sesiones. También intenta un fallback si tu archivo trae
+          columnas simples <code>Hora/Hour</code> y <code>Sesiones/Sessions</code>.
         </div>
       </div>
 
@@ -173,58 +173,88 @@
     btnPng.disabled = false;
   }
 
-  // Parser 1: GA4 “Sesiones x hora”
+  // Parser 1: GA4 “Sesiones x hora” (ES/EN)
   function parseGA4HourExport(rows){
-    // Busca bloques: [HORA, "% de cambio", %], luego 2 filas con [ , "dd mmm-dd mmm yyyy", sesiones]
-    const reDate = /\d{1,2}\s\w{3}-\d{1,2}\s\w{3}\s\d{4}/i;
+    // acepta "% de cambio" (ES) y "% change" (EN)
+    const isChangeLabel = (s)=>{
+      const t = String(s||'').toLowerCase().trim().replace(/\s+/g,' ');
+      return t === '% de cambio' || t === '% change';
+    };
+    // chequeo la fila de fecha tipo "29 oct-29 oct 2025" o "Nov 3 - Nov 3, 2025"
+    const looksLikeDateRange = (s)=>{
+      const t = String(s||'').toLowerCase().trim();
+      if(!t) return false;
+      if(!/\d{4}/.test(t)) return false;  // año
+      if(!t.includes('-')) return false;  // rango
+      if(!/[a-záéíóú]{3}/.test(t)) return false; // nombre de mes
+      return true;
+    };
+
     const hours = new Set();
     const seriesA = {}; const seriesB = {};
     let labelA = null, labelB = null;
 
     for(let i=0;i<rows.length;i++){
-      const r = rows[i];
-      const c0 = String(r[0]??'').trim();
-      const c1 = String(r[1]??'').trim();
-      if(/^\d+$/.test(c0) && c1 === '% de cambio'){
+      const r = rows[i] || [];
+      const c0 = String(r[0] ?? '').trim();
+      const c1 = String(r[1] ?? '').trim();
+      if(/^\d+$/.test(c0) && isChangeLabel(c1)){
         const hr = parseInt(c0,10);
-        const r1 = rows[i+1]||[]; const r2 = rows[i+2]||[];
-        const d1 = String(r1[1]??'').trim(); const v1 = toInt(r1[2]);
-        const d2 = String(r2[1]??'').trim(); const v2 = toInt(r2[2]);
-        if(reDate.test(d1) && reDate.test(d2)){
+        const r1 = rows[i+1] || [];
+        const r2 = rows[i+2] || [];
+        // algunas exports pueden tener la fecha en col 0, otras en col 1 -> hago fallback
+        const d1 = String((r1[1] ?? r1[0] ?? '')).trim();
+        const d2 = String((r2[1] ?? r2[0] ?? '')).trim();
+        // sesiones suelen estar en col 2, pero hago fallback a col 3 por las dudas
+        const v1 = toInt((r1[2] ?? r1[3]));
+        const v2 = toInt((r2[2] ?? r2[3]));
+        if(looksLikeDateRange(d1) && looksLikeDateRange(d2) && !isNaN(v1) && !isNaN(v2)){
           if(!labelA){ labelA = d1; labelB = d2; }
-          seriesA[hr] = v1; seriesB[hr] = v2; hours.add(hr);
+          seriesA[hr] = v1;
+          seriesB[hr] = v2;
+          hours.add(hr);
         }
       }
     }
+
     if(hours.size===0) return null;
     const labels = [...hours].sort((a,b)=>a-b);
     return {
       labels,
-      seriesLabels:[labelA,labelB],
-      datasets:[ labels.map(h=>seriesA[h]||0), labels.map(h=>seriesB[h]||0) ]
-    }
+      seriesLabels:[labelA || 'Fecha A', labelB || 'Fecha B'],
+      datasets:[
+        labels.map(h=>seriesA[h] || 0),
+        labels.map(h=>seriesB[h] || 0)
+      ]
+    };
   }
 
-  // Parser 2 (fallback): columnas simples Hora / Sesiones (1 serie)
+  // Parser 2 (fallback): columnas simples Hora/Hour / Sesiones/Sessions (1 serie)
   function parseSimpleHourSheet(rows){
-    // Busca cabecera con "Hora" y "Sesiones"
     let headerIdx = -1; let idxHora=-1, idxSes=-1;
     for(let i=0;i<Math.min(20,rows.length);i++){
-      const r = rows[i].map(x=>String(x).toLowerCase());
-      idxHora = r.findIndex(v=>v === 'hora');
-      idxSes  = r.findIndex(v=>v.includes('sesion'));
+      const row = rows[i] || [];
+      const r = row.map(x=>String(x).toLowerCase());
+      // soporta "hora" (ES) y "hour" (EN)
+      idxHora = r.findIndex(v=> v === 'hora' || v === 'hour');
+      // soporta "sesiones" y "sessions"
+      idxSes  = r.findIndex(v=> v.includes('sesion') || v.includes('session'));
       if(idxHora>-1 && idxSes>-1){ headerIdx=i; break; }
     }
     if(headerIdx===-1) return null;
+
     const labels=[]; const data=[];
     for(let i=headerIdx+1;i<rows.length;i++){
-      const r = rows[i]; if(r.length===0) continue;
-      const h = r[idxHora]; const v = toInt(r[idxSes]);
+      const r = rows[i] || [];
+      if(r.length===0) continue;
+      const h = r[idxHora];
+      const v = toInt(r[idxSes]);
       if(h==='' || isNaN(v)) continue;
-      labels.push(Number(h)); data.push(v);
+      labels.push(Number(h));
+      data.push(v);
     }
     if(labels.length===0) return null;
-    return {labels:labels.sort((a,b)=>a-b), seriesLabels:['Sesiones'], datasets:[data]};
+    return { labels: labels.sort((a,b)=>a-b), seriesLabels:['Sesiones'], datasets:[data] };
   }
 
   function drawChart(){
@@ -261,7 +291,7 @@
         maintainAspectRatio:false,
         plugins:{
           legend:{labels:{color:'#cfe0ff'}},
-          tooltip:{callbacks:{ 
+          tooltip:{callbacks:{
             label:(ctx)=>`${ctx.dataset.label}: ${formatNumber(ctx.parsed.y ?? ctx.raw, fmt)}`
           }},
           datalabels: showLabels ? {
@@ -277,7 +307,8 @@
         },
         scales:{
           x:{ticks:{color:'#9bb1ff'}, stacked: stacked && type==='bar'},
-          y:{ticks:{color:'#9bb1ff'}, grid:{color:'rgba(255,255,255,.08)'}, stacked: stacked && type==='bar'}}
+          y:{ticks:{color:'#9bb1ff'}, grid:{color:'rgba(255,255,255,.08)'}, stacked: stacked && type==='bar'}
+        }
       },
       plugins: [ChartDataLabels]
     };
