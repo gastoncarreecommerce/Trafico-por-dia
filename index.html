@@ -40,40 +40,13 @@
     <header>
       <h1>Sesiones por hora – Comparativo automático (Excel)</h1>
       <div class="controls">
-        <div class="chip">
-          <label for="file">Subí tu Excel (.xlsx):</label>
-          <input id="file" type="file" accept=".xlsx,.xls" />
-        </div>
-        <div class="chip">
-          <label for="sheet">Hoja:</label>
-          <select id="sheet"></select>
-        </div>
-        <div class="chip">
-          <label for="type">Tipo de gráfico</label>
-          <select id="type">
-            <option value="bar">Barras</option>
-            <option value="line">Líneas</option>
-          </select>
-        </div>
-        <div class="chip">
-          <label for="stacked">Barras apiladas</label>
-          <input id="stacked" type="checkbox" />
-        </div>
-        <div class="chip">
-          <label for="labels">Mostrar etiquetas</label>
-          <input id="labels" type="checkbox" checked />
-        </div>
-        <div class="chip">
-          <label for="fmt">Formato etiquetas</label>
-          <select id="fmt">
-            <option value="normal">Normal</option>
-            <option value="compact">Compacto (K/M)</option>
-          </select>
-        </div>
-        <div class="chip">
-          <label for="minval">Umbral mínimo</label>
-          <input id="minval" type="number" value="0" min="0" step="1" style="width:90px" />
-        </div>
+        <div class="chip"><label for="file">Subí tu Excel (.xlsx):</label><input id="file" type="file" accept=".xlsx,.xls" /></div>
+        <div class="chip"><label for="sheet">Hoja:</label><select id="sheet"></select></div>
+        <div class="chip"><label for="type">Tipo de gráfico</label><select id="type"><option value="bar">Barras</option><option value="line">Líneas</option></select></div>
+        <div class="chip"><label for="stacked">Apiladas</label><input id="stacked" type="checkbox" /></div>
+        <div class="chip"><label for="labels">Mostrar etiquetas</label><input id="labels" type="checkbox" checked /></div>
+        <div class="chip"><label for="fmt">Formato</label><select id="fmt"><option value="normal">Normal</option><option value="compact">Compacto (K/M)</option></select></div>
+        <div class="chip"><label for="minval">Umbral mínimo</label><input id="minval" type="number" value="0" min="0" step="1" style="width:90px" /></div>
         <button class="btn" id="download" disabled>Descargar PNG</button>
       </div>
     </header>
@@ -81,254 +54,138 @@
     <div class="grid">
       <div class="card panel">
         <div class="chart-wrap"><canvas id="chart"></canvas></div>
-        <div class="footer hint">
-          Detecta automáticamente el formato exportado de GA4 “Sesiones x hora” (en español o inglés): bloques por hora con fila
-          de <em>% de cambio / % change</em> + dos filas de fechas y sesiones. También intenta un fallback si tu archivo trae
-          columnas simples <code>Hora/Hour</code> y <code>Sesiones/Sessions</code>.
-        </div>
+        <div class="footer hint">Detecta automáticamente archivos GA4 (ES o EN). También funciona con columnas simples “Hora/Hour” y “Sesiones/Sessions”.</div>
       </div>
-
       <div class="card panel">
         <div class="meta">
-          <div class="kpi"><div class="t">Total fecha A</div><div class="v" id="kpiA">–</div></div>
-          <div class="kpi"><div class="t">Total fecha B</div><div class="v" id="kpiB">–</div></div>
+          <div class="kpi"><div class="t">Total A</div><div class="v" id="kpiA">–</div></div>
+          <div class="kpi"><div class="t">Total B</div><div class="v" id="kpiB">–</div></div>
           <div class="kpi"><div class="t">Δ % (A vs B)</div><div class="v"><span id="kpiDelta" class="delta">–</span></div></div>
           <div class="kpi"><div class="t">Hora pico</div><div class="v" id="kpiPeak">–</div></div>
         </div>
-        <div style="margin-top:12px" class="hint">Tip: podés arrastrar el Excel exportado desde Looker Studio/GA4. Si hay varias hojas, elegí la correcta.</div>
       </div>
     </div>
   </div>
 
-  <!-- Libs desde CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 
   <script>
   const $ = (s)=>document.querySelector(s);
-  const fileInput = $('#file');
-  const sheetSel  = $('#sheet');
-  const chartEl   = $('#chart');
-  const btnPng    = $('#download');
-  const typeSel   = $('#type');
-  const stackedCb = $('#stacked');
-  const labelsCb  = $('#labels');
-  const fmtSel    = $('#fmt');
-  const minInput  = $('#minval');
-
+  const fileInput=$('#file'),sheetSel=$('#sheet'),chartEl=$('#chart'),btnPng=$('#download');
+  const typeSel=$('#type'),stackedCb=$('#stacked'),labelsCb=$('#labels'),fmtSel=$('#fmt'),minInput=$('#minval');
   let workbook, chart, parsed;
 
-  // Helpers
-  const toInt = (x)=> {
-    const s = String(x||'').replace(/[^0-9]/g,'');
-    return s ? parseInt(s,10) : NaN;
-  };
-  const formatNumber = (v, mode='normal')=>{
-    if(mode === 'compact' && typeof Intl !== 'undefined' && Intl.NumberFormat){
-      return new Intl.NumberFormat('es-AR',{notation:'compact',maximumFractionDigits:1}).format(v);
-    }
+  const toInt = (x)=>{const s=String(x||'').replace(/[^0-9]/g,'');return s?parseInt(s,10):NaN;};
+  const formatNumber=(v,mode='normal')=>{
+    if(mode==='compact'&&Intl?.NumberFormat)return new Intl.NumberFormat('es-AR',{notation:'compact',maximumFractionDigits:1}).format(v);
     return Number(v).toLocaleString('es-AR');
   };
 
-  // Eventos UI
-  fileInput.addEventListener('change', async (e)=>{
-    const f = e.target.files[0];
-    if(!f) return;
-    const data = await f.arrayBuffer();
-    workbook = XLSX.read(data);
-    // Poblar selector de hojas
-    sheetSel.innerHTML = '';
-    workbook.SheetNames.forEach((name,i)=>{
-      const opt = document.createElement('option');
-      opt.value = name; opt.textContent = name; if(i===0) opt.selected = true; sheetSel.appendChild(opt);
-    });
+  fileInput.addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const data=await f.arrayBuffer(); workbook=XLSX.read(data);
+    sheetSel.innerHTML=''; workbook.SheetNames.forEach((name,i)=>{const o=document.createElement('option');o.value=name;o.textContent=name;if(i===0)o.selected=true;sheetSel.appendChild(o);});
     renderFromSheet(sheetSel.value);
   });
 
-  sheetSel.addEventListener('change', ()=> renderFromSheet(sheetSel.value));
-  typeSel.addEventListener('change', ()=> drawChart());
-  stackedCb.addEventListener('change', ()=> drawChart());
-  labelsCb.addEventListener('change', ()=> drawChart());
-  fmtSel.addEventListener('change', ()=> drawChart());
-  minInput.addEventListener('change', ()=> drawChart());
-  btnPng.addEventListener('click', ()=>{
-    if(!chart) return;
-    const url = chart.toBase64Image();
-    const a = document.createElement('a');
-    a.href = url; a.download = 'sesiones_por_hora.png'; a.click();
+  ['change'].forEach(ev=>{
+    sheetSel.addEventListener(ev,()=>renderFromSheet(sheetSel.value));
   });
+  [typeSel,stackedCb,labelsCb,fmtSel,minInput].forEach(el=>el.addEventListener('change',()=>drawChart()));
+  btnPng.addEventListener('click',()=>{if(!chart)return;const url=chart.toBase64Image();const a=document.createElement('a');a.href=url;a.download='sesiones_por_hora.png';a.click();});
 
-  // Render desde hoja seleccionada
   function renderFromSheet(name){
-    const ws = workbook.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-    parsed = parseGA4HourExport(rows) || parseSimpleHourSheet(rows);
-    if(!parsed){
-      alert('No pude detectar columnas válidas. Verificá el archivo.');
-      return;
-    }
-    drawChart();
-    updateKPIs(parsed);
-    btnPng.disabled = false;
+    const ws=workbook.Sheets[name];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    parsed=parseGA4(rows)||parseSimple(rows);
+    if(!parsed){alert('No pude detectar columnas válidas.');return;}
+    drawChart(); updateKPIs(parsed); btnPng.disabled=false;
   }
 
-  // Parser 1: GA4 “Sesiones x hora” (ES/EN)
-  function parseGA4HourExport(rows){
-    // acepta "% de cambio" (ES) y "% change" (EN)
-    const isChangeLabel = (s)=>{
-      const t = String(s||'').toLowerCase().trim().replace(/\s+/g,' ');
-      return t === '% de cambio' || t === '% change';
-    };
-    // chequeo la fila de fecha tipo "29 oct-29 oct 2025" o "Nov 3 - Nov 3, 2025"
-    const looksLikeDateRange = (s)=>{
-      const t = String(s||'').toLowerCase().trim();
-      if(!t) return false;
-      if(!/\d{4}/.test(t)) return false;  // año
-      if(!t.includes('-')) return false;  // rango
-      if(!/[a-záéíóú]{3}/.test(t)) return false; // nombre de mes
-      return true;
-    };
-
-    const hours = new Set();
-    const seriesA = {}; const seriesB = {};
-    let labelA = null, labelB = null;
-
+  function parseGA4(rows){
+    const isChange=s=>['% de cambio','% change'].includes(String(s||'').toLowerCase().trim());
+    const isRange=s=>/\d{4}/.test(s)&&/-/.test(s);
+    const h=new Set(),A={},B={};let lA=null,lB=null;
     for(let i=0;i<rows.length;i++){
-      const r = rows[i] || [];
-      const c0 = String(r[0] ?? '').trim();
-      const c1 = String(r[1] ?? '').trim();
-      if(/^\d+$/.test(c0) && isChangeLabel(c1)){
-        const hr = parseInt(c0,10);
-        const r1 = rows[i+1] || [];
-        const r2 = rows[i+2] || [];
-        // algunas exports pueden tener la fecha en col 0, otras en col 1 -> hago fallback
-        const d1 = String((r1[1] ?? r1[0] ?? '')).trim();
-        const d2 = String((r2[1] ?? r2[0] ?? '')).trim();
-        // sesiones suelen estar en col 2, pero hago fallback a col 3 por las dudas
-        const v1 = toInt((r1[2] ?? r1[3]));
-        const v2 = toInt((r2[2] ?? r2[3]));
-        if(looksLikeDateRange(d1) && looksLikeDateRange(d2) && !isNaN(v1) && !isNaN(v2)){
-          if(!labelA){ labelA = d1; labelB = d2; }
-          seriesA[hr] = v1;
-          seriesB[hr] = v2;
-          hours.add(hr);
-        }
+      const r=rows[i]||[],c0=String(r[0]||'').trim(),c1=String(r[1]||'').trim();
+      if(/^\d+$/.test(c0)&&isChange(c1)){
+        const hr=parseInt(c0,10),r1=rows[i+1]||[],r2=rows[i+2]||[];
+        const d1=String(r1[1]||r1[0]||''),d2=String(r2[1]||r2[0]||''),v1=toInt(r1[2]||r1[3]),v2=toInt(r2[2]||r2[3]);
+        if(isRange(d1)&&isRange(d2)){if(!lA){lA=d1;lB=d2;}A[hr]=v1;B[hr]=v2;h.add(hr);}
       }
     }
-
-    if(hours.size===0) return null;
-    const labels = [...hours].sort((a,b)=>a-b);
-    return {
-      labels,
-      seriesLabels:[labelA || 'Fecha A', labelB || 'Fecha B'],
-      datasets:[
-        labels.map(h=>seriesA[h] || 0),
-        labels.map(h=>seriesB[h] || 0)
-      ]
-    };
+    if(h.size===0)return null;
+    const labels=[...h].sort((a,b)=>a-b);
+    return{labels,seriesLabels:[lA||'Fecha A',lB||'Fecha B'],datasets:[labels.map(x=>A[x]||0),labels.map(x=>B[x]||0)]};
   }
 
-  // Parser 2 (fallback): columnas simples Hora/Hour / Sesiones/Sessions (1 serie)
-  function parseSimpleHourSheet(rows){
-    let headerIdx = -1; let idxHora=-1, idxSes=-1;
+  function parseSimple(rows){
+    let idx=-1,ih=-1,is=-1;
     for(let i=0;i<Math.min(20,rows.length);i++){
-      const row = rows[i] || [];
-      const r = row.map(x=>String(x).toLowerCase());
-      // soporta "hora" (ES) y "hour" (EN)
-      idxHora = r.findIndex(v=> v === 'hora' || v === 'hour');
-      // soporta "sesiones" y "sessions"
-      idxSes  = r.findIndex(v=> v.includes('sesion') || v.includes('session'));
-      if(idxHora>-1 && idxSes>-1){ headerIdx=i; break; }
+      const r=rows[i].map(x=>String(x).toLowerCase());
+      ih=r.findIndex(v=>v==='hora'||v==='hour');is=r.findIndex(v=>v.includes('sesion')||v.includes('session'));
+      if(ih>-1&&is>-1){idx=i;break;}
     }
-    if(headerIdx===-1) return null;
-
-    const labels=[]; const data=[];
-    for(let i=headerIdx+1;i<rows.length;i++){
-      const r = rows[i] || [];
-      if(r.length===0) continue;
-      const h = r[idxHora];
-      const v = toInt(r[idxSes]);
-      if(h==='' || isNaN(v)) continue;
-      labels.push(Number(h));
-      data.push(v);
+    if(idx===-1)return null;
+    const labels=[],data=[];
+    for(let i=idx+1;i<rows.length;i++){
+      const r=rows[i];if(!r.length)continue;const h=r[ih];const v=toInt(r[is]);if(!h||isNaN(v))continue;
+      labels.push(Number(h));data.push(v);
     }
-    if(labels.length===0) return null;
-    return { labels: labels.sort((a,b)=>a-b), seriesLabels:['Sesiones'], datasets:[data] };
+    if(!labels.length)return null;
+    return{labels:labels.sort((a,b)=>a-b),seriesLabels:['Sesiones'],datasets:[data]};
   }
 
   function drawChart(){
-    if(chart) chart.destroy();
+    if(chart)chart.destroy();
+    const wrap=document.querySelector('.chart-wrap');chartEl.height=Math.max(320,wrap.clientHeight||420);
+    const type=typeSel.value,stacked=stackedCb.checked,show=labelsCb.checked,fmt=fmtSel.value,minv=Math.max(0,Number(minInput.value||0));
+    const labels=parsed.labels.map(h=>String(h).padStart(2,'0'));
+    const clean=a=>a.map(v=>Number.isFinite(Number(v))?Number(v):0);
+    const datasets=parsed.datasets.map((arr,i)=>({label:parsed.seriesLabels[i]||`Serie ${i+1}`,data:clean(arr),tension:.35,fill:stacked&&type==='line',borderWidth:2}));
+    
+    // Auto-padding superior según valores máximos (anti-recorte)
+    const maxVal=Math.max(...parsed.datasets.flat());
+    const topPad=maxVal>20000?60:35;
 
-    // Altura estable del lienzo (evita crecimiento infinito)
-    const wrap = document.querySelector('.chart-wrap');
-    const h = wrap ? Math.max(320, wrap.clientHeight||420) : 420;
-    chartEl.height = h;
-
-    const type = typeSel.value;
-    const stacked = stackedCb.checked;
-    const showLabels = labelsCb.checked;
-    const fmt = fmtSel.value;
-    const minVal = Math.max(0, Number(minInput.value||0));
-
-    const labels = parsed.labels.map(h=>String(h).padStart(2,'0'));
-    const clean = (arr)=>arr.map(v=>Number.isFinite(Number(v))?Number(v):0);
-
-    const datasets = parsed.datasets.map((arr,i)=>({
-      label: parsed.seriesLabels[i]||`Serie ${i+1}`,
-      data: clean(arr),
-      tension: .3,
-      fill: stacked && type==='line' ? true : false,
-      borderWidth: 2,
-    }));
-
-    const cfg = {
+    const cfg={
       type,
-      data:{ labels, datasets },
+      data:{labels,datasets},
       options:{
         responsive:true,
-        interaction:{mode:'index', intersect:false},
         maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        layout:{padding:{top:topPad,left:20,right:20,bottom:15}},
         plugins:{
-          legend:{labels:{color:'#cfe0ff'}},
-          tooltip:{callbacks:{
-            label:(ctx)=>`${ctx.dataset.label}: ${formatNumber(ctx.parsed.y ?? ctx.raw, fmt)}`
-          }},
-          datalabels: showLabels ? {
-            formatter:(v)=> (v >= minVal ? formatNumber(v, fmt) : ''),
-            anchor: type==='bar' ? 'end' : 'end',
-            align:  type==='bar' ? 'end' : 'top',
-            offset: 4,
-            clamp: true,
-            clip: true,
-            color:'#e6ecff',
-            font:{weight:'600', size: 10}
-          } : { display:false }
+          legend:{labels:{color:'#cfe0ff',font:{size:13}}},
+          tooltip:{callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${formatNumber(ctx.parsed.y??ctx.raw,fmt)}`}},
+          datalabels: show ? {
+            formatter:(v)=>v>=minv?formatNumber(v,fmt):'',
+            anchor:'end',align:'top',offset:4,clamp:true,clip:false,
+            color:'#e6ecff',font:{weight:'600',size:10},padding:2
+          }: {display:false}
         },
         scales:{
-          x:{ticks:{color:'#9bb1ff'}, stacked: stacked && type==='bar'},
-          y:{ticks:{color:'#9bb1ff'}, grid:{color:'rgba(255,255,255,.08)'}, stacked: stacked && type==='bar'}
+          x:{ticks:{color:'#9bb1ff'},stacked:stacked&&type==='bar'},
+          y:{ticks:{color:'#9bb1ff'},grid:{color:'rgba(255,255,255,.08)'},stacked:stacked&&type==='bar'}
         }
       },
-      plugins: [ChartDataLabels]
+      plugins:[ChartDataLabels]
     };
-
-    chart = new Chart(chartEl.getContext('2d'), cfg);
+    chart=new Chart(chartEl.getContext('2d'),cfg);
   }
 
   function updateKPIs(p){
-    const aTot = p.datasets[0].reduce((s,v)=>s+(v||0),0);
-    const bTot = p.datasets[1] ? p.datasets[1].reduce((s,v)=>s+(v||0),0) : 0;
-    const delta = bTot>0 ? ((aTot/bTot)-1)*100 : 0;
-    const base = p.datasets[0];
-    const peakIdx = base.indexOf(Math.max(...base));
-    const peakHour = String(p.labels[peakIdx]).padStart(2,'0');
-    document.getElementById('kpiA').textContent = aTot.toLocaleString('es-AR');
-    document.getElementById('kpiB').textContent = bTot.toLocaleString('es-AR');
-    const d = document.getElementById('kpiDelta');
-    d.textContent = (isFinite(delta) ? (delta.toFixed(2)+'%') : '–');
-    d.className = 'delta ' + (delta>=0? 'positive':'negative');
-    document.getElementById('kpiPeak').textContent = `${peakHour}:00`;
+    const a=p.datasets[0].reduce((s,v)=>s+(v||0),0);
+    const b=p.datasets[1]?p.datasets[1].reduce((s,v)=>s+(v||0),0):0;
+    const d=b>0?((a/b)-1)*100:0;
+    const base=p.datasets[0];const peak=base.indexOf(Math.max(...base));
+    $('#kpiA').textContent=a.toLocaleString('es-AR');
+    $('#kpiB').textContent=b.toLocaleString('es-AR');
+    const kd=$('#kpiDelta');kd.textContent=isFinite(d)?d.toFixed(2)+'%':'–';kd.className='delta '+(d>=0?'positive':'negative');
+    $('#kpiPeak').textContent=String(p.labels[peak]).padStart(2,'0')+':00';
   }
   </script>
 </body>
